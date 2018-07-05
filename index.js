@@ -37,6 +37,155 @@ var scoreText;
 var score;
 var hasCollided;
 
+var INITIAL_LIVES = 3;
+var PAUSE_AFTER_HIT = 3;
+var PAUSE_AFTER_GAME_OVER = 10;
+
+var progress = (function () {
+  var lives = INITIAL_LIVES;
+
+  var progressDiv;
+  var hitTimeoutDiv;
+  var hitTimeoutTimer;
+  var hitTimeoutIndex;
+  var process = true;
+
+  var longestScoreSoFar = 0;
+  var currentScore = 0;
+  var totalScore = 0;
+  var bestScoreFromAllGames = 0;
+
+  function initializeUi() {
+    progressDiv = document.createElement('div');
+    progressDiv.style.position = 'absolute';
+    progressDiv.style.zIndex = 999;
+    progressDiv.style.width = '100%';
+    progressDiv.style.height = '100px';
+    progressDiv.innerHTML = "";
+    progressDiv.style.top = '100px';
+    progressDiv.style.left = '10px';
+    document.body.appendChild(progressDiv);
+
+    hitTimeoutDiv = document.createElement('div');
+    hitTimeoutDiv.style.position = 'absolute';
+    hitTimeoutDiv.style.zIndex = 999;
+    hitTimeoutDiv.style.width = '100%';
+    hitTimeoutDiv.style.height = '200px';
+    hitTimeoutDiv.innerHTML = "";
+    hitTimeoutDiv.style.textAlign = "center";
+    hitTimeoutDiv.style.display = 'none';
+    hitTimeoutDiv.style.fontSize = '22px';
+    hitTimeoutDiv.style.top = '300px';
+    hitTimeoutDiv.style.left = '10px';
+    document.body.appendChild(hitTimeoutDiv);
+  }
+
+  function updateUi() {
+    progressDiv.innerHTML = 'Lives: ' + lives
+      + '<br/> Best of the best so ( all games ): ' + bestScoreFromAllGames
+      + '<br/> Total score ( current game ): ' + (totalScore + score)
+      + '<br/> Longest run so far ( current game ): ' + longestScoreSoFar
+      + '<br/> Current run: ' + (currentScore < longestScoreSoFar ? (currentScore + ' / ' + longestScoreSoFar + ' = ' + (currentScore / longestScoreSoFar * 100).toFixed(2) + '%') : (currentScore + '!'))
+    ;
+  }
+
+  function handleScore() {
+    longestScoreSoFar = longestScoreSoFar < score ? score : longestScoreSoFar;
+    totalScore += score;
+    score = 0;
+  }
+
+  function handleHit() {
+    handleScore();
+
+    --lives;
+    hitTimeoutDiv.style.display = 'block';
+    hitTimeoutIndex = 0;
+    hitTimeoutDiv.innerHTML = 'Respawn after: ' + (PAUSE_AFTER_HIT - hitTimeoutIndex);
+
+    process = false;
+
+
+    hitTimeoutTimer = setInterval(function () {
+      ++hitTimeoutIndex;
+
+      if (hitTimeoutIndex >= PAUSE_AFTER_HIT) {
+        hitTimeoutDiv.style.display = 'none';
+        resetLevel();
+
+        clearTimeout(hitTimeoutTimer);
+      } else {
+        hitTimeoutDiv.innerHTML = 'Respawn after: ' + (PAUSE_AFTER_HIT - hitTimeoutIndex);
+      }
+    }, 1000);
+  }
+
+  function handleGameOver() {
+    handleScore();
+
+    var newRecord = totalScore > bestScoreFromAllGames;
+
+    hitTimeoutDiv.style.display = 'block';
+    hitTimeoutIndex = 0;
+    hitTimeoutDiv.innerHTML = 'Game Over!'
+      + '<br/>' + 'Respawn after: ' + (PAUSE_AFTER_GAME_OVER - hitTimeoutIndex)
+      + '<br/>' + (newRecord ? 'New Record' : 'The best score is still ' + bestScoreFromAllGames);
+
+    bestScoreFromAllGames = bestScoreFromAllGames < totalScore ? totalScore : bestScoreFromAllGames;
+    process = false;
+
+    hitTimeoutTimer = setInterval(function () {
+      ++hitTimeoutIndex;
+
+      if (hitTimeoutIndex >= PAUSE_AFTER_GAME_OVER) {
+        hitTimeoutDiv.style.display = 'none';
+        resetGame();
+        resetLevel();
+
+        clearTimeout(hitTimeoutTimer);
+      } else {
+        hitTimeoutDiv.innerHTML = 'Game Over!'
+          + '<br/>' + 'Respawn after: ' + (PAUSE_AFTER_GAME_OVER - hitTimeoutIndex)
+          + '<br/>' + (newRecord ? 'New Record' : 'The best score is still ' + bestScoreFromAllGames);
+      }
+    }, 1000);
+  }
+
+  function resetGame() {
+    lives = INITIAL_LIVES;
+    longestScoreSoFar = 0;
+    currentScore = 0;
+    totalScore = 0;
+  }
+
+  function resetLevel() {
+    process = true;
+    hasCollided = false;
+  }
+
+  initializeUi();
+  updateUi();
+
+  return {
+    hit: function () {
+      if (lives > 0) {
+        handleHit();
+        updateUi();
+      } else {
+        handleGameOver();
+        updateUi();
+      }
+    },
+    progress: function () {
+      currentScore = score;
+      updateUi();
+    },
+    process: function () {
+      return process;
+    }
+  };
+})();
+
 init();
 
 function init() {
@@ -99,7 +248,7 @@ function createScene(){
   scoreText.style.width = 100;
   scoreText.style.height = 100;
   //scoreText.style.backgroundColor = "blue";
-  scoreText.innerHTML = "0";
+  scoreText.innerHTML = "Current score: 0";
   scoreText.style.top = 50 + 'px';
   scoreText.style.left = 10 + 'px';
   document.body.appendChild(scoreText);
@@ -363,34 +512,43 @@ function tightenTree(vertices,sides,currentTier){
 }
 
 function update(){
-  //stats.update();
-  //animate
-  rollingGroundSphere.rotation.x += rollingSpeed;
-  heroSphere.rotation.x -= heroRollingSpeed;
-  if(heroSphere.position.y<=heroBaseY){
-    jumping=false;
-    bounceValue=(Math.random()*0.04)+0.005;
-  }
-  heroSphere.position.y+=bounceValue;
-  heroSphere.position.x=THREE.Math.lerp(heroSphere.position.x,currentLane, 2*clock.getDelta());//clock.getElapsedTime());
-  bounceValue-=gravity;
-  if(clock.getElapsedTime()>treeReleaseInterval){
-    clock.start();
-    addPathTree();
-    if(!hasCollided){
-      score+=2*treeReleaseInterval;
-      scoreText.innerHTML=score.toString();
+  if (progress.process()) {
+    progress.progress();
+
+    //stats.update();
+    //animate
+    rollingGroundSphere.rotation.x += rollingSpeed;
+    heroSphere.rotation.x -= heroRollingSpeed;
+    if(heroSphere.position.y<=heroBaseY){
+      jumping=false;
+      bounceValue=(Math.random()*0.04)+0.005;
     }
+    heroSphere.position.y+=bounceValue;
+    heroSphere.position.x=THREE.Math.lerp(heroSphere.position.x,currentLane, 2*clock.getDelta());//clock.getElapsedTime());
+    bounceValue-=gravity;
+
+    if(clock.getElapsedTime()>treeReleaseInterval){
+      clock.start();
+      addPathTree();
+      if(!hasCollided){
+        score+=2*treeReleaseInterval;
+        scoreText.innerHTML='Current score: ' + score.toString();
+      }
+    }
+
   }
+
   doTreeLogic();
   doExplosionLogic();
   render();
+
   requestAnimationFrame(update);//request next update
 }
 function doTreeLogic(){
   var oneTree;
   var treePos = new THREE.Vector3();
   var treesToRemove=[];
+  var treesToPurge=[];
   treesInPath.forEach( function ( element, index ) {
     oneTree=treesInPath[ index ];
     treePos.setFromMatrixPosition( oneTree.matrixWorld );
@@ -398,7 +556,10 @@ function doTreeLogic(){
       treesToRemove.push(oneTree);
     }else{//check collision
       if(treePos.distanceTo(heroSphere.position)<=0.6){
-	console.log("hit");
+        progress.hit();
+
+        treesToRemove.push(oneTree);
+        treesToPurge.push(oneTree);
 	hasCollided=true;
 	explode();
       }
@@ -409,7 +570,12 @@ function doTreeLogic(){
     oneTree=treesToRemove[ index ];
     fromWhere=treesInPath.indexOf(oneTree);
     treesInPath.splice(fromWhere,1);
-    treesPool.push(oneTree);
+    if (treesToPurge.indexOf(oneTree) !== -1) {
+      rollingGroundSphere.remove(oneTree);
+      console.log('purge tree', oneTree);
+    } else {
+      treesPool.push(oneTree);
+    }
     oneTree.visible=false;
     console.log("remove tree");
   });
